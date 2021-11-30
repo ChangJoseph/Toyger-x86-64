@@ -1,0 +1,8 @@
+let
+  var x:int
+in
+  printstring("enter an integer:");
+  x := getint();
+  printint(x);
+  return x
+end
