@@ -15,9 +15,9 @@ import java.util.*;
 program		: let_prime decs IN statements end_prime
           ;
 
-let_prime : LET { System.out.print(file_start); System.out.print(main_start);}
+let_prime : LET             { System.out.print(file_start); System.out.print(main_start); }
           ;
-end_prime : END {System.out.print(main_end);}
+end_prime : END             { System.out.print(main_end); }
           ;
 
 decs  : dec  decs
@@ -62,19 +62,19 @@ return_stmt	: RETURN expr
     | RETURN
 
 rel_expr		: expr EQ expr 
-		| expr NE expr 
-		| expr LT expr 
-		| expr LE expr 
-		| expr GT expr 
-		| expr GE expr 
+		| expr NE expr          { control_comp(0,$1.ival,$3.ival); }
+		| expr LT expr          { control_comp(1,$1.ival,$3.ival); }
+		| expr LE expr          { control_comp(2,$1.ival,$3.ival); }
+		| expr GT expr          { control_comp(3,$1.ival,$3.ival); }
+		| expr GE expr          { control_comp(4,$1.ival,$3.ival); }
 		| LP rel_expr RP
 
-expr		: expr ADD term 
-		| expr MINUS term 
+expr		: expr ADD term     { expr_add_gen($1.ival,$3,ival) }
+		| expr MINUS term       { expr_sub_gen($1.ival,$3,ival) }
 		| term
 
-term		: term MUL factor 
-		| term DIV factor 
+term		: term MUL factor   { expr_mul_gen($1.ival,$3,ival) }
+		| term DIV factor       { expr_div_gen($1.ival,$3,ival) }
 		| factor
 
 factor		: LP expr RP 
@@ -83,8 +83,8 @@ factor		: LP expr RP
 		| ID 
 		| call_stmt
 
-print_stmt	: PRINTINT LP expr RP {printf(print_int,$3.ival);}
-  | PRINTSTRING LP expr RP {printf(print_string,$3.sval);}
+print_stmt	: PRINTINT LP expr RP       { printf(print_int,$3.ival); }
+  | PRINTSTRING LP expr RP              { printf(print_string,$3.sval); }
 
 input_stmt	: ID ASSIGN GETINT LP RP
 
@@ -132,20 +132,55 @@ static String print_string  = "movl $%s, %%r10d\n" +
                             "xorl %%eax, %%eax\n" +
                             "call printf\n"
 
-static String expr_mult   = "movl $%i, %%%s\n" + /* %i for x val, %s for new mem 1 */
+// multiply expression fields/functions
+static String expr_mul    = "movl $%i, %%%s\n" + /* %i for x val, %s for new mem 1 */
                             "movl $%i, %%%s\n" + /* %i for y val, %s for new mem 2 */
                             "imull %%%s, %%%s\n" /* two %s for x and y mems */
+public void expr_mul_gen(int val1, int val2) {
+  String str1 = new_register();
+  String str2 = new_register();
+  expr_mul_gen(expr_mul,val1,str1,val2,str2,str1,str2);
+}
+public void expr_mul_gen(int val1, int val2, String str1, String str2) {
+  printf(expr_mul,val1,str1,val2,str2,str1,str2);
+  old_register(str2);
+}
+
+// division expression fields/functions
 // TODO fix division as its own thing
 static String expr_div    = "" + /* %i for x val, %s for new mem 1 */
                             "" + /* %i for y val, %s for new mem 2 */
                             "" /* two %s for x and y mems */
+
+// addition expression fields/functions
 static String expr_add    = "movl $%i, %%%s\n" + /* %i for x val, %s for new mem 1 */
                             "movl $%i, %%%s\n" + /* %i for y val, %s for new mem 2 */
                             "idivl %%%s, %%%s\n" /* two %s for x and y mems */
+public void expr_add_gen(int val1, int val2) {
+  String str1 = new_register();
+  String str2 = new_register();
+  expr_add_gen(expr_add,val1,str1,val2,str2,str1,str2);
+}
+public void expr_add_gen(int val1, int val2, String str1, String str2) {
+  printf(expr_add,val1,str1,val2,str2,str1,str2);
+  old_register(str2);
+}
+
+// subtraction expression fields/functions
 static String expr_sub    = "movl $%i, %%%s\n" + /* %i for x val, %s for new mem 1 */
                             "movl $%i, %%%s\n" + /* %i for y val, %s for new mem 2 */
                             "isubl %%%s, %%%s\n" /* two %s for x and y mems */
+public void expr_sub_gen(int val1, int val2) {
+  String str1 = new_register();
+  String str2 = new_register();
+  expr_sub_gen(expr_sub,val1,str1,val2,str2,str1,str2);
+}
+public void expr_sub_gen(int val1, int val2, String str1, String str2) {
+  printf(expr_sub,val1,str1,val2,str2,str1,str2);
+  old_register(str2);
+}
 
+// allocation fields/functions
 static String static_allocation     = ".data\n%s:  .long 0\n" /* %s for the global variable name */
 static String static_alloc_complex  = ".text\nmovl $%i, %%%s\n" + /* %i for value, %s for temp mem */
                                       "movl %%%s, %s(%%rip)\n" /* %s for above temp var, %s for global var name */
@@ -156,13 +191,41 @@ static String get_int       = "movl $LGETINT, %%edi\n" +
                             "xorl %%eax, %%eax\n" +
                             "call scanf"
 
-static String control_if  = 
+// rel expr setup
 static String control_comp_setup  = "movl $%i, %%%s\n" + /* %i and %s for the first vars val and name */
                               "movl $%i, %%%s\n" /* %i and %s for the second vars val and name */
+static String control_comp_not_equal    = "cmpne %%%s, %%%s\n"
 static String control_comp_less         = "cmpl %%%s, %%%s\n" /* the names of the vars to cmpl */
 static String control_comp_less_equal   = "cmple %%%s, %%%s\n" /* the names of the vars to cmpl */
 static String control_comp_great        = "cmpg %%%s, %%%s\n" /* the names of the vars to cmpl */
 static String control_comp_great_equal  = "cmpge %%%s, %%%s\n" /* the names of the vars to cmpl */
+// op states: 0 <>, 1 <, 2 <=, 3 >, 4 >=
+static void control_comp(int op, int val1, int val2) {
+  String str1 = new_register();
+  String str2 = new_register();
+  printf(control_comp_setup,val1,str1,val2,str2) // mov 2 vals into 2 new regs
+  switch(op) {
+    case 0:
+      printf(control_comp_not_equal,str1,str2);
+      break;
+    case 1:
+      printf(control_comp_less,str1,str2);
+      break;
+    case 2:
+      printf(control_comp_less_equal,str1,str2);
+      break;
+    case 3:
+      printf(control_comp_great,str1,str2);
+      break;
+    case 4:
+      printf(control_comp_great_equal,str1,str2);
+      break;
+    default:
+      break;
+  }
+}
+
+static String control_if  = 
 
 
 // helper fields
@@ -194,8 +257,8 @@ public String new_register() {
 public String new_register_stack() {
 
 }
-// Set given register as not live
-public void clear_register(String old_register) {
+// Set given register as not live and add back to stack of usable registers
+public void old_register(String old_reg) {
   register_stack.add(old_register);
 }
 
