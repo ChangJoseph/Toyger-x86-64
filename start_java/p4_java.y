@@ -214,16 +214,32 @@ public String expr_sub_gen(int val1, int val2, String str1, String str2) {
 // --- Global Variable and Assignment ---
 
 // global/static allocation fields/functions
+private ArrayList<String> global_vars = new ArrayList<String>();
+
 static String global_var_init_f     = ".data\nglobal_%s:  .long 0\n" /* %s for the global variable name */
 static String global_var_decl_f     = ".text\nmovl $%i, %%%s\n" + /* %i for value, %s for temp mem */
                                       "movl %%%s, global_%s(%%rip)\n" /* %s for above temp var, %s for global var name */
 public void global_var_init(String name) {
+  global_vars.add(name);
   printf(global_var_init_f,name);
 }
 public void global_var_decl(String name, int val) {
+  if (!global_vars.contains(name)) global_vars.add(name);
   String reg = new_register();
   printf(global_var_decl_f,val,reg,reg,name);
   // TODO do I have to free the reg? find out if reg is only used for setting stack var(%rip) or if used past 
+}
+
+// --- Local Variable and Assignment ---
+static String local_var_decl_f      = ".text\nmovl $%i, %%%s\n" /* %i for value, %s for reg to store in */
+public void var_decl(String name, int val) {
+  if (global_vars.contains(name)) {
+    global_var_decl(name, val);
+  }
+  else {
+    String reg = new_register();
+    printf(local_var_decl_f,val,reg);
+  }
 }
 
 
