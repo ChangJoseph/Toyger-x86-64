@@ -15,9 +15,9 @@ import java.util.*;
 program		: let_prime decs IN statements end_prime
           ;
 
-let_prime : LET             { System.out.print(file_start); System.out.print(main_start); }
+let_prime : LET             { file_start(); main_start(); }
           ;
-end_prime : END             { System.out.print(main_end); }
+end_prime : END             { main_end(); }
           ;
 
 decs  : dec  decs
@@ -72,22 +72,22 @@ rel_expr		: expr EQ expr
 		| expr GE expr          { control_comp(4,$1.ival,$3.ival,$1.sval,$3.sval); }
 		| LP rel_expr RP        { $$ = $2; }
 
-expr		: expr ADD term     { $$.sval = expr_add_gen($1.ival,$3,ival,$1.sval,$3.sval); $$.ival = $1.ival + $3.ival; }
-		| expr MINUS term       { $$.sval = expr_sub_gen($1.ival,$3,ival,$1.sval,$3.sval); $$.ival = $1.ival - $3.ival; }
+expr		: expr ADD term     { $$ = new Semantic($1.ival+$3.ival, expr_add_gen($1.ival,$3.ival,$1.sval,$3.sval)); }
+		| expr MINUS term       { $$ = new Semantic($1.ival-$3.ival, expr_sub_gen($1.ival,$3.ival,$1.sval,$3.sval)); }
 		| term
 
-term		: term MUL factor   { $$.sval = expr_mul_gen($1.ival,$3,ival,$1.sval,$3.sval); $$.ival = $1.ival * $3.ival; }
+term		: term MUL factor   { $$ = new Semantic($1.ival*$3.ival, expr_mul_gen($1.ival,$3.ival,$1.sval,$3.sval)); }
 		| term DIV factor       { $$ = new Semantic($1.ival / $3.ival); }
 		| factor
 
 factor		: LP expr RP      { $$ = $2; }
-		| NUMBER 
-		| STRING_LITERAL 
-		| ID 
+		| NUMBER                { $$ = new Semantic($1); }
+		| STRING_LITERAL        { $$ = new Semantic($1); }
+		| ID                    { $$ = new Semantic($1); }
 		| call_stmt
 
-print_stmt	: PRINTINT LP expr RP       { System.out.printf(print_int,     $3.ival); }
-  | PRINTSTRING LP expr RP              { System.out.printf(print_string,  $3.sval); }
+print_stmt	: PRINTINT LP expr RP       { print_int($3.ival); }
+  | PRINTSTRING LP expr RP              { print_string($3.sval); }
 
 input_stmt	: ID ASSIGN GETINT LP RP    { get_int($1.sval); }
 
@@ -105,12 +105,16 @@ expr_list	: expr_list COMMA expr
 
 %%
 // New definition for attributes non-terminals hold
-public static final class Semantic {
+static final class Semantic {
    public Integer ival;
    public String sval;
    public Semantic(Semantic sem) {
       this.ival = sem.ival;
       this.sval = sem.sval;
+   }
+   public Semantic(Integer ival, String sval) {
+      this.ival = ival;
+      this.sval = sval;
    }
    public Semantic(Integer ival) {
       this.ival = ival;
@@ -139,27 +143,47 @@ static String file_start = ".section .rodata\n" +
                             "LPRINT0:\n  .string \"%%d\\n\"\n" +
                             "LPRINT1:\n  .string \"%%s\\n\"\n" +
                             "LGETINT:\n  .string \"%%d\"\n"; 
+static void file_start() {
+  System.out.printf(file_start);
+}
         
-static String main_start = ".text\n.global main\nmain:\npushq %rbp\n";
-static String main_end = ".text\npopq %rbp\nret\n";
+static String main_start = ".text\n.global main\nmain:\npushq %%rbp\n";
+static void main_start() {
+  System.out.printf(main_start);
+}
+static String main_end = ".text\npopq %%rbp\nret\n";
+static void main_end() {
+  System.out.printf(main_end);
+}
 
 
 // --- Output (printint and printstring) ---
 
-/* first %s for str var name, second %s for actual string value */
-static String string_declaration = "%s:  .string \"%s\"";
+
 // first line has %d or %s for either the int or string to print
-static String print_int     = "movl $%d, %%r10d\n" +
+static String print_int     = "movl $%d, %%%s\n" + /* %d is the val to print, %s for new var 1 */
                             "movl $LPRINT0, %%edi\n" +
                             "movl %%%s, %%esi\n" + /* %s for new var 1 */
                             "xorl %%eax, %%eax\n" +
                             "call printf\n";
-static String print_string  = "movl $%s, %%r10d\n" +
+static void print_int(int val) {
+  String reg = new_register();
+  System.out.printf(print_int,val,reg,reg);
+  old_register(reg);
+}
+static int str_num = -1;
+static String print_string= "%s:  .string \"%s\"\n" +
+                            "movl $%s, %%%s\n" + /* %s is the val to print, %s for new var 1 */
                             "movl $LPRINT1, %%edi\n" +
                             "movl %%%s, %%esi\n" + /* %s for new var 1 */
                             "xorl %%eax, %%eax\n" +
                             "call printf\n";
-
+static void print_string(String str) {
+  String reg = new_register();
+  String label = "str" + ++str_num;
+  System.out.printf(print_string,label,str,label,reg,reg);
+  old_register(reg);
+}
 
 // --- Arithmetic Expressions ---
 // these functions print the correct assembly and return the live mem reg still used
@@ -169,12 +193,12 @@ static String expr_mul    = "movl $%i, %%%s\n" + /* %i for x val, %s for new mem
                             "movl $%i, %%%s\n" + /* %i for y val, %s for new mem 2 */
                             "imull %%%s, %%%s\n"; /* two %s for x and y mems */
 // returns the register that is still live
-public String expr_mul_gen(int val1, int val2) {
+static String expr_mul_gen(int val1, int val2) {
   String str1 = null;
   String str2 = null;
   return expr_mul_gen(val1,val2,str1,str2);
 }
-public String expr_mul_gen(int val1, int val2, String str1, String str2) {
+static String expr_mul_gen(int val1, int val2, String str1, String str2) {
   if (str1 == null) {
     str1 = new_register();
   }
@@ -192,12 +216,12 @@ public String expr_mul_gen(int val1, int val2, String str1, String str2) {
 static String expr_add    = "movl $%i, %%%s\n" + /* %i for x val, %s for new mem 1 */
                             "movl $%i, %%%s\n" + /* %i for y val, %s for new mem 2 */
                             "idivl %%%s, %%%s\n"; /* two %s for x and y mems */
-public String expr_add_gen(int val1, int val2) {
+static String expr_add_gen(int val1, int val2) {
   String str1 = null;
   String str2 = null;
   return expr_add_gen(val1,val2,str1,str2);
 }
-public String expr_add_gen(int val1, int val2, String str1, String str2) {
+static String expr_add_gen(int val1, int val2, String str1, String str2) {
   if (str1 == null) {
     str1 = new_register();
   }
@@ -213,12 +237,12 @@ public String expr_add_gen(int val1, int val2, String str1, String str2) {
 static String expr_sub    = "movl $%i, %%%s\n" + /* %i for x val, %s for new mem 1 */
                             "movl $%i, %%%s\n" + /* %i for y val, %s for new mem 2 */
                             "isubl %%%s, %%%s\n"; /* two %s for x and y mems */
-public String expr_sub_gen(int val1, int val2) {
+static String expr_sub_gen(int val1, int val2) {
   String str1 = null;
   String str2 = null;
   return expr_sub_gen(val1,val2,str1,str2);
 }
-public String expr_sub_gen(int val1, int val2, String str1, String str2) {
+static String expr_sub_gen(int val1, int val2, String str1, String str2) {
   if (str1 == null) {
     str1 = new_register();
   }
@@ -234,17 +258,17 @@ public String expr_sub_gen(int val1, int val2, String str1, String str2) {
 // --- Global Variable and Assignment ---
 
 // global/static allocation fields/functions
-private ArrayList<String> global_vars = new ArrayList<String>();
+static ArrayList<String> global_vars = new ArrayList<String>();
 
 static String global_var_init_f     = ".data\nglobal_%s:  .long 0\n"; /* %s for the global variable name */
 static String global_var_decl_f     = ".text\nmovl $%i, %%%s\n" + /* %i for value, %s for temp mem */
                                       "movl %%%s, global_%s(%%rip)\n"; /* %s for above temp var, %s for global var name */
-public void global_var_init(String name) {
+static void global_var_init(String name) {
   global_vars.add(name);
   System.out.printf(global_var_init_f,name);
 }
 // Returns the reg that contains the var value
-public String global_var_decl(String name, int val) {
+static String global_var_decl(String name, int val) {
   if (!global_vars.contains(name)) global_vars.add(name);
   String reg = new_register();
   System.out.printf(global_var_decl_f,val,reg,reg,name);
@@ -257,7 +281,7 @@ public String global_var_decl(String name, int val) {
 
 static String local_var_decl_f      = ".text\nmovl $%i, %%%s\n"; /* %i for value, %s for reg to store in */
 // returns reg with the var value
-public String var_decl(String name, int val) {
+static String var_decl(String name, int val) {
   if (global_vars.contains(name)) {
     global_var_decl(name, val);
   }
@@ -266,6 +290,7 @@ public String var_decl(String name, int val) {
     System.out.printf(local_var_decl_f,val,reg);
     return reg;
   }
+  return null;
 }
 
 
@@ -275,7 +300,7 @@ static String get_int_f     = "movl $LGETINT, %%edi\n" +
                             "movl $%s, %%esi\n" + /* %s for name of the val to put getint() into */ 
                             "xorl %%eax, %%eax\n" +
                             "call scanf";
-public void get_int(String name) {
+static void get_int(String name) {
   System.out.printf(get_int_f,name);
 }
 // TODO ************ check if i need to change $var for if global or local
@@ -324,14 +349,14 @@ static String control_comp_for          = "movl %%%s, global_%s(%%rip)\n" +
 static void control_comp(int op, int val1, int val2) {
   String str1 = null;
   String str2 = null;
-  return control_comp(op, val1, val2, str1, str2);
+  control_comp(op, val1, val2, str1, str2);
 }
 static void control_comp(int op, int val1, int val2, String str1, String str2) {
   if (str1 == null) {
-    String str1 = new_register();
+    str1 = new_register();
   }
   if (str2 == null) {
-    String str2 = new_register();
+    str2 = new_register();
   }
   System.out.printf(control_comp_setup,val1,str1,val2,str2); // mov 2 vals into 2 new regs
   switch(op) {
@@ -397,24 +422,24 @@ static String proc_post_call = "movq (%%rdx), %%rdi\n" +
                               "movq 56(%%rdx), %%r11\n";
 
 // helper fields
-private ArrayList<String> register_stack = new ArrayList<String>();
-private int control_label_count = -1;
+static ArrayList<String> register_stack = new ArrayList<String>();
+static int control_label_count = -1;
 
 // helper methods
 // Get a new control statement label for any loop of any if statements
-public String control_label() {
+static String control_label() {
   control_label_count++;
   return "L" + control_label_count;
 }
 
 // Initialize the register stack with temp registers to be used in the code
-public void init_register_stack() {
+static void init_register_stack() {
   for (int i = 15; i >= 10; i--) {
     register_stack.add("r" + i + "d"); // r10d to r15d
   }
 }
 // Get a new register that is not live
-public String new_register() {
+static String new_register() {
   if (register_stack.size() <= 0) {
     return new_register_stack();
   }
@@ -422,12 +447,12 @@ public String new_register() {
   return reg;
 }
 // If no more space in register stack, use frame pointer
-public String new_register_stack() {
+static String new_register_stack() {
   return null;
 }
 // Set given register as not live and add back to stack of usable registers
-public void old_register(String old_reg) {
-  register_stack.add(old_register);
+static void old_register(String old_reg) {
+  register_stack.add(old_reg);
 }
 
 
