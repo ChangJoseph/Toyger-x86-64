@@ -89,7 +89,7 @@ factor		: LP expr RP      { $$ = $2; }
 print_stmt	: PRINTINT LP expr RP       { printf(print_int,     $3.ival); }
   | PRINTSTRING LP expr RP              { printf(print_string,  $3.sval); }
 
-input_stmt	: ID ASSIGN GETINT LP RP
+input_stmt	: ID ASSIGN GETINT LP RP    { get_int($1.sval); }
 
 call_stmt	: ID LP RP 
 		| ID LP expr_list RP
@@ -223,33 +223,47 @@ public void global_var_init(String name) {
   global_vars.add(name);
   printf(global_var_init_f,name);
 }
-public void global_var_decl(String name, int val) {
+// Returns the reg that contains the var value
+public String global_var_decl(String name, int val) {
   if (!global_vars.contains(name)) global_vars.add(name);
   String reg = new_register();
   printf(global_var_decl_f,val,reg,reg,name);
+  return reg;
   // TODO do I have to free the reg? find out if reg is only used for setting stack var(%rip) or if used past 
 }
 
+
 // --- Local Variable and Assignment ---
+
 static String local_var_decl_f      = ".text\nmovl $%i, %%%s\n" /* %i for value, %s for reg to store in */
-public void var_decl(String name, int val) {
+// returns reg with the var value
+public String var_decl(String name, int val) {
   if (global_vars.contains(name)) {
     global_var_decl(name, val);
   }
   else {
     String reg = new_register();
     printf(local_var_decl_f,val,reg);
+    return reg;
   }
 }
 
 
 // --- Input ---
 
-//static String get_int     = ".section  .rodata\n.LGETINT:\n  .string \"%%d\"\n.data\n"
-static String get_int       = "movl $LGETINT, %%edi\n" +
+static String get_int_f     = "movl $LGETINT, %%edi\n" +
                             "movl $%s, %%esi\n" + /* %s for name of the val to put getint() into */ 
                             "xorl %%eax, %%eax\n" +
                             "call scanf"
+public void get_int(String name) {
+  printf(get_int_f,name);
+}
+// TODO ************ check if i need to change $var for if global or local
+// maybe change global vars so that "global_" is in the name
+// Also probably have to free the reg in global var declarations because it is a label
+
+
+// --- Control Flow ---
 
 // rel expr setup
 static String control_comp_setup  = "movl $%i, %%%s\n" + /* %i and %s for the first vars val and name */
@@ -296,6 +310,44 @@ static void control_comp(int op, int val1, int val2, String str1, String str2) {
 
 static String control_if  = ""
 
+
+// -- Procedure Call/Return ---
+
+static String proc_init     = ".data\nf_callee_regs:.zero 40\nf_caller_regs:.zero 64\n"
+// Callee
+static String proc_prologue = "pushq %%rbp\n" +
+                              "movq $f_callee_regs, %%rax\n" +
+                              "movq %%rbx, (%%rax)\n" +
+                              "movq %%r12, 8(%%rax)\n" +
+                              "movq %%r13, 16(%%rax)\n" +
+                              "movq %%r14, 24(%%rax)\n" +
+                              "movq %%r15, 32(%%rax)\n"
+static String proc_epilogue = "movq $f_callee_regs, %%rdx\n" +
+                              "movq (%%rdx), %%rbx\n" +
+                              "movq 8(%%rdx), %%r12\n" +
+                              "movq 16(%%rdx), %%r13\n" +
+                              "movq 24(%%rdx), %%r14\n" +
+                              "movq 32(%%rdx), %%r15\n" +
+                              "popq %%rbp\n" +
+                              "ret\n"
+// Caller (must call function between the pre/post calls)
+static String proc_pre_call = "movq $f_caller_regs, %%rbx\n" +
+                              "movq %%rdi, (%%rbx)\n" +
+                              "movq %%rsi, 8(%%rbx)\n" +
+                              "movq %%rdx, 16(%%rbx)\n" +
+                              "movq %%rcx, 24(%%rbx)\n" +
+                              "movq %%r8, 32(%%rbx)\n"
+                              "movq %%r9, 40(%%rbx)\n" +
+                              "movq %%r10, 48(%%rbx)\n" +
+                              "movq %%r11, 56(%%rbx)\n"
+static String proc_post_call = "movq (%%rdx), %%rdi\n" +
+                              "movq 8(%%rdx), %%rsi\n" +
+                              "movq 16(%%rdx), %%rdx\n" +
+                              "movq 24(%%rdx), %%rcx\n" +
+                              "movq 32(%%rdx), %%r8\n" +
+                              "movq 40(%%rdx), %%r9\n" +
+                              "movq 48(%%rdx), %%r10\n" +
+                              "movq 56(%%rdx), %%r11\n" +
 
 // helper fields
 private ArrayList<String> register_stack = new ArrayList<String>();
